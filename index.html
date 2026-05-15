@@ -635,22 +635,23 @@ async function addLocalTracks(ev) {
   if (files.length === 0) return;
 
   try {
-    const db = await openDB();
-    const tx = db.transaction('tracks', 'readwrite');
-    const store = tx.objectStore('tracks');
-
+    // 第一步: 先把所有文件读成 data URL（不在事务内）
+    const items = [];
     for (const f of files) {
       const data = await new Promise((resolve) => {
         const reader = new FileReader();
         reader.onload = e => resolve(e.target.result);
         reader.readAsDataURL(f);
       });
-      const name = f.name.replace(/\.[^.]+$/, '');
-      await new Promise((resolve, reject) => {
-        const req = store.add({ name, data });
-        req.onsuccess = resolve;
-        req.onerror = () => reject(req.error);
-      });
+      items.push({ name: f.name.replace(/\.[^.]+$/, ''), data });
+    }
+
+    // 第二步: 写入 IndexedDB（快速同步操作）
+    const db = await openDB();
+    const tx = db.transaction('tracks', 'readwrite');
+    const store = tx.objectStore('tracks');
+    for (const item of items) {
+      store.add(item);
     }
     await new Promise(resolve => { tx.oncomplete = resolve; tx.onerror = resolve; });
     db.close();
