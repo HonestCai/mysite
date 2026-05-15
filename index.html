@@ -448,6 +448,7 @@ footer p{color:#8b7355;font-size:13px;letter-spacing:4px}
         + 添加本地音乐 (mp3 / flac / wav)
       </button>
       <input type="file" id="fileInput" accept="audio/*" multiple onchange="addLocalTracks(event)">
+<input type="file" id="photoInput" accept="image/*" multiple onchange="uploadPhotos(event)" style="display:none">
     </div>
   </div>
 </section>
@@ -575,27 +576,121 @@ function renderEssays() {
   `).join('');
 }
 
+// ========== PHOTO UPLOAD (IndexedDB) ==========
+const PHOTO_DB = 'mysite_photos_v2';
+
+function openPhotoDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(PHOTO_DB, 1);
+    req.onupgradeneeded = function(e) {
+      if (!e.target.result.objectStoreNames.contains('photos')) {
+        e.target.result.createObjectStore('photos', { keyPath: 'id', autoIncrement: true });
+      }
+    };
+    req.onsuccess = function(e) { resolve(e.target.result); };
+    req.onerror = function(e) { reject(e.target.error); };
+  });
+}
+
+async function uploadPhotos(ev) {
+  const input = document.getElementById('photoInput');
+  const files = Array.from(input.files);
+  if (files.length === 0) return;
+  try {
+    const items = [];
+    for (const f of files) {
+      const data = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.readAsDataURL(f);
+      });
+      items.push({ name: f.name.replace(/\.[^.]+$/, ''), data, date: new Date().toISOString().slice(0,10).replace(/-/g,'.'), desc: '' });
+    }
+    const db = await openPhotoDB();
+    const tx = db.transaction('photos', 'readwrite');
+    const store = tx.objectStore('photos');
+    for (const item of items) { store.add(item); }
+    await new Promise(resolve => { tx.oncomplete = resolve; tx.onerror = resolve; });
+    db.close();
+    input.value = '';
+    renderPhotos();
+    initScrollReveal();
+  } catch(e) { console.error('Photo upload error:', e); alert('上传失败: ' + e.message); }
+}
+
+async function loadUploadedPhotos() {
+  try {
+    const db = await openPhotoDB();
+    const tx = db.transaction('photos', 'readonly');
+    const store = tx.objectStore('photos');
+    const all = await new Promise((resolve, reject) => {
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    return all;
+  } catch(e) { return []; }
+}
+
+async function deleteUploadedPhoto(id) {
+  if (!confirm('确定删除这张照片？')) return;
+  try {
+    const db = await openPhotoDB();
+    const tx = db.transaction('photos', 'readwrite');
+    tx.objectStore('photos').delete(id);
+    await new Promise(resolve => { tx.oncomplete = resolve; tx.onerror = resolve; });
+    db.close();
+    renderPhotos();
+  } catch(e) { console.error('Delete photo error:', e); }
+}
+
+// ===== Add photo upload button to the photos section =====
+document.addEventListener('DOMContentLoaded', function() {
+  const bar = document.querySelector('#photos .section-edit-bar');
+  if (bar) {
+    const btn = document.createElement('button');
+    btn.textContent = '上传照片';
+    btn.onclick = function() { document.getElementById('photoInput').click(); };
+    btn.style.cssText = 'margin-left:auto;background:rgba(196,30,58,0.15);border-color:rgba(196,30,58,0.3);color:#c41e3a';
+    bar.appendChild(btn);
+  }
+});
+
 // ========== RENDER PHOTOS ==========
-function renderPhotos() {
+async function renderPhotos() {
   const container = document.getElementById('photosContainer');
-  const data = siteData.photos;
-  if (data.length === 0 || !data[0].src) {
+  const existing = siteData.photos.filter(p => p.src);
+  const uploaded = await loadUploadedPhotos();
+
+  const allPhotos = [
+    ...uploaded.map(p => ({ ...p, type: 'upload' })),
+    ...existing.map(p => ({ ...p, type: 'url' }))
+  ];
+
+  if (allPhotos.length === 0) {
     container.innerHTML = `<div class="reveal" style="grid-column:1/-1;text-align:center;color:#8b7355;padding:48px">
       <p style="font-size:18px">📷 在这里添加你的摄影作品</p>
-      <p style="font-size:14px;margin-top:8px">编辑 mysite.html 中 siteData.photos 的 src 字段</p>
+      <p style="font-size:14px;margin-top:8px">点击上方按钮上传照片，或编辑 siteData.photos 添加图片链接</p>
     </div>`;
     return;
   }
-  container.innerHTML = data.map((p, i) => `
-    <div class="photo-item reveal reveal-delay-${i%4}">
-      <img src="${esc(p.src)}" alt="${esc(p.title)}" loading="lazy" onerror="this.parentElement.style.display='none'" onclick="openLightbox('${esc(p.src)}')">
+
+  container.innerHTML = allPhotos.map((p, i) => {
+    const src = p.type === 'upload' ? p.data : p.src;
+    const delBtn = p.type === 'upload'
+      ? `<span style="position:absolute;top:8px;right:8px;background:rgba(196,30,58,0.7);color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;z-index:2" onclick="event.stopPropagation();deleteUploadedPhoto(${p.id})">×</span>`
+      : `<span style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);color:#e8dcc8;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:12px;z-index:2" onclick="event.stopPropagation();openEditor('photos',${i - uploaded.length})">✎</span>`;
+
+    return `<div class="photo-item reveal reveal-delay-${i%4}">
+      <img src="${esc(src)}" alt="${esc(p.title||p.name)}" loading="lazy" onerror="this.parentElement.style.display='none'" onclick="openLightbox('${esc(src)}')">
       <div class="photo-overlay">
-        <div class="photo-title">${esc(p.title)}</div>
+        <div class="photo-title">${esc(p.title||p.name)}</div>
         <div class="photo-date">${esc(p.date)}</div>
       </div>
-      <span style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);color:#e8dcc8;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:12px;z-index:2" onclick="event.stopPropagation();openEditor('photos',${i})">✎</span>
-    </div>
-  `).join('');
+      ${delBtn}
+    </div>`;
+  }).join('');
 }
 
 // ========== LIGHTBOX ==========
