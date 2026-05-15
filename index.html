@@ -530,18 +530,34 @@ nav{border-bottom:1px solid rgba(184,134,11,0.15)}
   <h2 class="section-title">弦歌</h2>
   <p class="section-subtitle">— 耳畔之音 · 心之所向 —</p>
 
-  <div class="music-box" style="max-width:600px;margin:0 auto">
-    <div class="player">
-      <div class="now-playing" id="nowPlaying">未选择曲目</div>
-      <audio id="audioPlayer" controls style="width:100%"></audio>
-      <div class="track-list" id="trackList"></div>
-      <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
-        + 添加本地音乐 (mp3 / flac / wav)
-      </button>
-      <input type="file" id="fileInput" accept="audio/*" multiple onchange="addLocalTracks(event)">
-<input type="file" id="photoInput" accept="image/*" multiple onchange="uploadPhotos(event)" style="display:none">
+  <div class="music-wrap">
+    <div class="music-box">
+      <h3>公开歌单</h3>
+      <p style="color:#8b7355;font-size:12px;margin-bottom:12px">托管在 GitHub · 所有访客都能听</p>
+      <div class="player">
+        <div class="now-playing" id="publicNowPlaying">未选择曲目</div>
+        <audio id="publicAudioPlayer" controls style="width:100%"></audio>
+        <div class="track-list" id="publicTrackList"></div>
+        <div class="section-edit-bar" style="padding:0;margin-top:12px">
+          <button onclick="openEditor('publicMusic',-1)">+ 添加公开曲目</button>
+        </div>
+      </div>
+    </div>
+    <div class="music-box">
+      <h3>本地上传</h3>
+      <p style="color:#8b7355;font-size:12px;margin-bottom:12px">仅本设备可听</p>
+      <div class="player">
+        <div class="now-playing" id="nowPlaying">未选择曲目</div>
+        <audio id="audioPlayer" controls style="width:100%"></audio>
+        <div class="track-list" id="trackList"></div>
+        <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+          + 添加本地音乐 (mp3 / flac / wav)
+        </button>
+        <input type="file" id="fileInput" accept="audio/*" multiple onchange="addLocalTracks(event)">
+      </div>
     </div>
   </div>
+  <input type="file" id="photoInput" accept="image/*" multiple onchange="uploadPhotos(event)" style="display:none">
 </section>
 
 <!-- ===== FOOTER ===== -->
@@ -625,7 +641,9 @@ const siteData = {
     { src: '', title: '海', date: '2025.01', desc: '冬天的海，安静得不像话' },
     { src: '', title: '猫', date: '2024.12', desc: '咖啡馆窗台上的橘猫' }
   ],
-  music: {},
+  music: {
+    publicTracks: []  // {name: "曲目名", url: "music/song.mp3"}
+  },
   hero: {
     seal: '墨韵',
     title: '浮生若梦',
@@ -797,6 +815,44 @@ document.getElementById('lightbox').addEventListener('click', function(e) {
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
 
+// ========== MUSIC - Public Tracks (GitHub) ==========
+let publicTrackList = [];
+
+function renderPublicTracks() {
+  publicTrackList = siteData.music.publicTracks;
+  const list = document.getElementById('publicTrackList');
+  if (publicTrackList.length === 0) {
+    list.innerHTML = '<div style="text-align:center;color:#8b7355;padding:24px;font-size:13px">暂无公开曲目<br>点击下方按钮添加歌曲链接</div>';
+    return;
+  }
+  list.innerHTML = publicTrackList.map((t, i) => `
+    <div class="track-item" onclick="playPublicTrack(${i})">
+      <span class="track-num">${i + 1}</span>
+      <span>${esc(t.name)}</span>
+      <span style="margin-left:auto;cursor:pointer;color:#8b7355;font-size:12px" onclick="event.stopPropagation();removePublicTrack(${i})">删除</span>
+    </div>
+  `).join('');
+}
+
+function playPublicTrack(index) {
+  const track = publicTrackList[index];
+  const player = document.getElementById('publicAudioPlayer');
+  player.src = track.url;
+  player.play();
+  document.getElementById('publicNowPlaying').textContent = '♫ ' + track.name;
+  document.querySelectorAll('#publicTrackList .track-item').forEach((el, i) => {
+    el.classList.toggle('active', i === index);
+  });
+}
+
+function removePublicTrack(index) {
+  if (!confirm('删除 "' + publicTrackList[index].name + '" ？')) return;
+  siteData.music.publicTracks.splice(index, 1);
+  saveData();
+  renderPublicTracks();
+  document.getElementById('publicNowPlaying').textContent = '未选择曲目';
+}
+
 // ========== MUSIC - Local Player (IndexedDB) ==========
 let localTrackList = [];
 const DB_NAME = 'mysite_music_v2';
@@ -931,6 +987,7 @@ function saveData() {
   localStorage.setItem('mysite_essays', JSON.stringify(siteData.essays));
   localStorage.setItem('mysite_photos', JSON.stringify(siteData.photos));
   localStorage.setItem('mysite_hero', JSON.stringify(siteData.hero));
+  localStorage.setItem('mysite_publicTracks', JSON.stringify(siteData.music.publicTracks));
 }
 function loadData() {
   try {
@@ -941,8 +998,11 @@ function loadData() {
     if (poems) siteData.poems = JSON.parse(poems);
     if (essays) siteData.essays = JSON.parse(essays);
     if (photos) siteData.photos = JSON.parse(photos);
+    const publicTracks = localStorage.getItem('mysite_publicTracks');
     if (hero) siteData.hero = JSON.parse(hero);
+    if (publicTracks) siteData.music.publicTracks = JSON.parse(publicTracks);
     renderHero();
+    renderPublicTracks();
   } catch(e) { console.log('Load failed, using defaults'); }
 }
 
@@ -986,6 +1046,14 @@ function openEditor(section, index) {
       <label>日期</label><input id="ef3" value="${esc(ph.date)}">
       <label>描述</label><input id="ef4" value="${esc(ph.desc)}">
     `;
+  } else if (section === 'publicMusic') {
+    title.textContent = '添加公开曲目';
+    form.innerHTML = `
+      <label>曲目名称</label><input id="ef1" value="" placeholder="如: 晴天 - 周杰伦">
+      <label>音乐文件</label>
+      <p style="font-size:12px;color:#8b7355;margin-bottom:8px">把 mp3 放到 GitHub 仓库的 music/ 文件夹，然后填路径</p>
+      <input id="ef2" value="" placeholder="music/song.mp3">
+    `;
   } else if (section === 'hero') {
     title.textContent = '编辑首页';
     const h = siteData.hero;
@@ -1012,6 +1080,12 @@ function saveEditor() {
     const item = { src: document.getElementById('ef1').value, title: document.getElementById('ef2').value, date: document.getElementById('ef3').value, desc: document.getElementById('ef4')?.value || '' };
     if (editingIndex >= 0) siteData.photos[editingIndex] = item; else siteData.photos.push(item);
     renderPhotos();
+  } else if (editingSection === 'publicMusic') {
+    const name = document.getElementById('ef1').value;
+    const url = document.getElementById('ef2').value;
+    if (name && url) siteData.music.publicTracks.push({ name, url });
+    renderPublicTracks();
+    saveData();
   } else if (editingSection === 'hero') {
     siteData.hero.seal = document.getElementById('ef1').value;
     siteData.hero.title = document.getElementById('ef2').value;
@@ -1059,7 +1133,7 @@ function importData(event) {
 
 function refreshAll() {
   renderPoems(); renderEssays(); renderPhotos();
-  renderLocalTracks(); initScrollReveal();
+  renderPublicTracks(); renderLocalTracks(); initScrollReveal();
 }
 
 function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
