@@ -992,6 +992,13 @@ function saveData() {
   localStorage.setItem('mysite_publicTracks', JSON.stringify(siteData.music.publicTracks));
 }
 function loadData() {
+  // 版本号：改动 publicTracks 默认值时 +1，强制刷新缓存
+  const SITE_VERSION = 'v2';
+  const savedVersion = localStorage.getItem('mysite_version');
+  if (savedVersion !== SITE_VERSION) {
+    localStorage.removeItem('mysite_publicTracks');
+    localStorage.setItem('mysite_version', SITE_VERSION);
+  }
   try {
     const poems = localStorage.getItem('mysite_poems');
     const essays = localStorage.getItem('mysite_essays');
@@ -1002,7 +1009,7 @@ function loadData() {
     if (photos) siteData.photos = JSON.parse(photos);
     const publicTracks = localStorage.getItem('mysite_publicTracks');
     if (hero) siteData.hero = JSON.parse(hero);
-    if (publicTracks) siteData.music.publicTracks = JSON.parse(publicTracks);
+    if (publicTracks) { const pt = JSON.parse(publicTracks); if (pt.length > 0) siteData.music.publicTracks = pt; }
     renderHero();
     renderPublicTracks();
   } catch(e) { console.log('Load failed, using defaults'); }
